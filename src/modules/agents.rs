@@ -146,7 +146,7 @@ pub fn hook_main(args: &[String]) -> i32 {
     unsafe {
         let target = match std::env::var("WINDYLAND_AGENT_HWND").ok().and_then(|h| h.parse::<isize>().ok()) {
             Some(h) => HWND(h as *mut _),
-            None => FindWindowW(w!("WindyLandNotch"), None).unwrap_or_default(),
+            None => FindWindowW(w!("DynamicIslandNotch"), None).unwrap_or_default(),
         };
         if target.0.is_null() {
             return 0;
