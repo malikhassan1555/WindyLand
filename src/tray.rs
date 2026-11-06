@@ -21,7 +21,7 @@ const ID_EXIT: u32 = 9;
 const ID_UNINSTALL: u32 = 10;
 
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
-const RUN_NAME: PCWSTR = w!("WindyLand");
+const RUN_NAME: PCWSTR = w!("Dynamic Island Windows");
 
 pub fn taskbar_created() -> u32 {
     static M: OnceLock<u32> = OnceLock::new();
@@ -35,7 +35,7 @@ fn nid(hwnd: HWND) -> NOTIFYICONDATAW {
         uID: 1,
         ..Default::default()
     };
-    let tip: Vec<u16> = "WindyLand".encode_utf16().collect();
+    let tip: Vec<u16> = "Dynamic Island Windows".encode_utf16().collect();
     n.szTip[..tip.len()].copy_from_slice(&tip);
     n
 }
@@ -117,8 +117,8 @@ pub fn show_menu() {
         let _ = SetMenuDefaultItem(menu, ID_SETTINGS, 0);
         item(ID_TOUR, w!("Welcome tour"));
         item(ID_UPDATES, w!("Check for updates"));
-        item(ID_ABOUT, w!("About WindyLand"));
-        item(ID_UNINSTALL, w!("Uninstall WindyLand..."));
+        item(ID_ABOUT, w!("About Dynamic Island Windows"));
+        item(ID_UNINSTALL, w!("Uninstall Dynamic Island Windows..."));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
         item(ID_EXIT, w!("Exit"));
 
@@ -166,14 +166,14 @@ pub fn command(app: &mut App, id: u32) {
 pub fn about() {
     unsafe {
         let text = HSTRING::from(format!(
-            "WindyLand {}\n\nA living notch for Windows.\nMusic, lyrics, timer, Pomodoro, to-do, water reminder, file shelf and clipboard history.\n\nLyrics provided by LRCLIB (lrclib.net).\nYour data stays in %APPDATA%\\WindyLand.\n\nhttps://github.com/{}",
+            "Dynamic Island Windows {}\n\nA floating island (or notch) for Windows.\nMusic, lyrics, prayer times, sun and moon, timers, to-do, water reminder, file shelf and clipboard history.\n\nLyrics provided by LRCLIB (lrclib.net).\nYour data stays in %APPDATA%\\DynamicIslandWindows.\n\nhttps://github.com/{}",
             crate::modules::update::VERSION,
             crate::modules::update::REPO
         ));
         MessageBoxW(
             None,
             &text,
-            w!("About WindyLand"),
+            w!("About Dynamic Island Windows"),
             MB_OK | MB_ICONINFORMATION,
         );
     }

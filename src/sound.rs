@@ -9,7 +9,6 @@ use windows::core::{w, PCWSTR};
 use windows::Win32::Media::Audio::*;
 
 use crate::store::Sound;
-
 const RATE: u32 = 44100;
 static CURRENT: AtomicU8 = AtomicU8::new(1);
 static MUTED: AtomicBool = AtomicBool::new(false);

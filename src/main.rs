@@ -1,7 +1,8 @@
 #![windows_subsystem = "windows"]
 // Many helpers (gfx shapes, palette, Ctx methods) exist for future modules.
 #![allow(dead_code)]
-//! WindyLand: a living notch for Windows.
+//! Dynamic Island Windows: a floating island or notch for Windows.
+//! (Fork of WindyLand by Shabab, MIT licensed.)
 //!
 //! Layout:
 //!   app.rs      window, animation, input routing, toasts, mascot
@@ -147,7 +148,7 @@ fn main() {
             std::process::exit(0);
         }
 
-        let mutex = CreateMutexW(None, true, w!("Local\\WindyLand.SingleInstance"));
+        let mutex = CreateMutexW(None, true, w!("Local\\DynamicIslandWindows.SingleInstance"));
         if GetLastError() == ERROR_ALREADY_EXISTS {
             return;
         }
@@ -156,8 +157,8 @@ fn main() {
         }
 
         if let Err(e) = app::App::create(true) {
-            let msg = HSTRING::from(format!("WindyLand failed to start:\n{e}"));
-            MessageBoxW(None, &msg, w!("WindyLand"), MB_ICONERROR);
+            let msg = HSTRING::from(format!("Dynamic Island Windows failed to start:\n{e}"));
+            MessageBoxW(None, &msg, w!("Dynamic Island Windows"), MB_ICONERROR);
             return;
         }
 

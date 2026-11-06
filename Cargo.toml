@@ -1,14 +1,14 @@
 [package]
-name = "windyland"
-version = "0.1.20"
+name = "dynamic-island-windows"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/shabab239/WindyLand"
-authors = ["Shabab"]
-description = "A living notch for Windows: music, lyrics, focus timer, water reminder, to-do, file shelf and clipboard history."
+repository = "https://github.com/malikhassan1555/WindyLand"
+authors = ["Shabab (original WindyLand)", "Malik Hassan (Dynamic Island Windows fork)"]
+description = "Dynamic Island for Windows: a floating island or notch with music, lyrics, prayer times, sky widgets, focus timers and more."
 
 [[bin]]
-name = "windyland"
+name = "dynamic-island-windows"
 path = "src/main.rs"
 
 [dependencies]

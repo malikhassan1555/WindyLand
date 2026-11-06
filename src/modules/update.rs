@@ -18,7 +18,7 @@ use crate::http;
 use crate::modules::{Ctx, Module, Rel, Toast};
 use crate::time::unix_now;
 
-pub const REPO: &str = "shabab239/WindyLand";
+pub const REPO: &str = "malikhassan1555/WindyLand";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Action ids. `A_CHECK_NOW` is also sent by the tray menu.

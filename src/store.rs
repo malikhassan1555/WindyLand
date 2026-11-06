@@ -1,4 +1,4 @@
-//! Plain-text persistence in %APPDATA%\WindyLand\.
+//! Plain-text persistence in %APPDATA%\DynamicIslandWindows\.
 //!
 //! Each feature owns one small text file (settings.txt, todo.txt, water.txt,
 //! shelf.txt). Files are written atomically (temp file + rename).
@@ -8,10 +8,10 @@ use std::fs;
 use std::path::PathBuf;
 
 pub fn dir() -> PathBuf {
-    // WINDYLAND_DATA_DIR overrides the location (used by `windyland --selftest`).
+    // WINDYLAND_DATA_DIR overrides the location (used by `--selftest`).
     let p = match std::env::var("WINDYLAND_DATA_DIR") {
         Ok(d) if !d.is_empty() => PathBuf::from(d),
-        _ => PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| ".".into())).join("WindyLand"),
+        _ => PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| ".".into())).join("DynamicIslandWindows"),
     };
     let _ = fs::create_dir_all(&p);
     p
@@ -63,6 +63,35 @@ pub fn unesc(s: &str) -> String {
         }
     }
     out
+}
+
+/// The collapsed window shape: either a notch glued to the screen edge, or a
+/// floating pill with a soft shadow.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Shape {
+    /// Attached to the screen edge like the current notch.
+    Notch,
+    /// Floating pill, fully rounded corners, soft shadow, a few px off the edge.
+    Island,
+}
+
+impl Shape {
+    pub const ALL: [Shape; 2] = [Shape::Notch, Shape::Island];
+    pub fn key(self) -> &'static str {
+        match self {
+            Shape::Notch => "notch",
+            Shape::Island => "island",
+        }
+    }
+    pub fn from_key(s: &str) -> Option<Shape> {
+        Shape::ALL.into_iter().find(|v| v.key() == s)
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Shape::Notch => "Notch",
+            Shape::Island => "Floating Island",
+        }
+    }
 }
 
 /// How the notch looks when nothing is open.
@@ -123,11 +152,31 @@ pub enum Mascot {
     Sprout,
     Owl,
     Panda,
+    Fox,
+    Bunny,
+    Bear,
+    Frog,
+    Dino,
+    OwlKing,
 }
 
 impl Mascot {
-    pub const ALL: [Mascot; 8] =
-        [Mascot::Eyes, Mascot::Cat, Mascot::Ghost, Mascot::Robot, Mascot::Sparky, Mascot::Sprout, Mascot::Owl, Mascot::Panda];
+    pub const ALL: [Mascot; 14] = [
+        Mascot::Eyes,
+        Mascot::Cat,
+        Mascot::Ghost,
+        Mascot::Robot,
+        Mascot::Sparky,
+        Mascot::Sprout,
+        Mascot::Owl,
+        Mascot::Panda,
+        Mascot::Fox,
+        Mascot::Bunny,
+        Mascot::Bear,
+        Mascot::Frog,
+        Mascot::Dino,
+        Mascot::OwlKing,
+    ];
     pub fn key(self) -> &'static str {
         match self {
             Mascot::Eyes => "eyes",
@@ -138,6 +187,12 @@ impl Mascot {
             Mascot::Sprout => "sprout",
             Mascot::Owl => "owl",
             Mascot::Panda => "panda",
+            Mascot::Fox => "fox",
+            Mascot::Bunny => "bunny",
+            Mascot::Bear => "bear",
+            Mascot::Frog => "frog",
+            Mascot::Dino => "dino",
+            Mascot::OwlKing => "owlking",
         }
     }
     pub fn label(self) -> &'static str {
@@ -150,6 +205,12 @@ impl Mascot {
             Mascot::Sprout => "Sprout",
             Mascot::Owl => "Owl",
             Mascot::Panda => "Panda",
+            Mascot::Fox => "Fox",
+            Mascot::Bunny => "Bunny",
+            Mascot::Bear => "Bear",
+            Mascot::Frog => "Frog",
+            Mascot::Dino => "Dino",
+            Mascot::OwlKing => "Owl King",
         }
     }
     pub fn from_key(s: &str) -> Option<Mascot> {
@@ -269,6 +330,8 @@ pub struct Settings {
     pub mascot: Mascot,
     /// Collapsed look: full, compact, pill or hidden.
     pub style: NotchStyle,
+    /// Collapsed shape: notch glued to the edge, or a floating pill.
+    pub shape: Shape,
     /// Screen edge, position along it (0..1 of the work area), and a point
     /// inside the chosen monitor (None = primary monitor).
     pub edge: Edge,
@@ -303,6 +366,9 @@ pub struct Settings {
     pub notif_text: bool,
     /// 12-hour clock ("4:20 PM"); off = 24-hour ("16:20").
     pub clock12: bool,
+    /// Clock appearance: 0=Digital 12h, 1=Digital 24h, 2=Analog, 3=Fancy digits, 4=Minimal.
+    /// Keeps `clock12` in sync (0→true, 1→false) for legacy code.
+    pub clock_style: u8,
     /// A small toast showing what was just copied (opt-in).
     pub copy_toast: bool,
     /// Shrink to a thin, click-through bar while a maximized window is
@@ -328,6 +394,7 @@ impl Settings {
                 .get("style")
                 .and_then(|s| NotchStyle::from_key(s))
                 .unwrap_or(if b("minimal", false) { NotchStyle::Compact } else { NotchStyle::Full }),
+            shape: kv.get("shape").and_then(|s| Shape::from_key(s)).unwrap_or(Shape::Notch),
             edge: kv.get("edge").and_then(|s| Edge::from_key(s)).unwrap_or(Edge::Top),
             pos: kv.get("pos").and_then(|s| s.parse().ok()).unwrap_or(0.5f32).clamp(0.0, 1.0),
             monitor: kv.get("monitor").and_then(|s| {
@@ -350,11 +417,22 @@ impl Settings {
             notif_on: kv.get("notif_on").map_or(false, |v| v == "1"),
             notif_text: kv.get("notif_text").map_or(true, |v| v == "1"),
             clock12: kv.get("clock12").map_or(true, |v| v != "0"),
+            clock_style: kv.get("clock_style").and_then(|v| v.parse().ok()).filter(|v| *v <= 4).unwrap_or_else(|| {
+                let c12 = kv.get("clock12").map_or(true, |v| v != "0");
+                if c12 { 0 } else { 1 }
+            }),
             copy_toast: kv.get("copy_toast").map_or(false, |v| v == "1"),
             make_room: kv.get("make_room").map_or(true, |v| v != "0"),
             extra: kv,
         }
     }
+
+    /// Is the collapsed shape a floating island (rounded pill, soft shadow,
+    /// a few px off the screen edge) rather than a notch glued to an edge?
+    pub fn island(&self) -> bool {
+        self.shape == Shape::Island
+    }
+
     pub fn save(&self) {
         let mut kv = self.extra.clone();
         kv.insert("personality".into(), (self.personality as u8).to_string());
@@ -383,6 +461,7 @@ impl Settings {
         kv.insert("notif_on".into(), (self.notif_on as u8).to_string());
         kv.insert("notif_text".into(), (self.notif_text as u8).to_string());
         kv.insert("clock12".into(), (self.clock12 as u8).to_string());
+        kv.insert("clock_style".into(), self.clock_style.to_string());
         kv.insert("copy_toast".into(), (self.copy_toast as u8).to_string());
         kv.insert("make_room".into(), (self.make_room as u8).to_string());
         write("settings.txt", &write_kv(&kv));

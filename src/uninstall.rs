@@ -1,4 +1,5 @@
-//! `windyland.exe --uninstall [--quiet] [--keep-data]`: remove WindyLand
+//! `dynamic-island-windows.exe --uninstall [--quiet] [--keep-data]`: remove
+//! Dynamic Island Windows
 //! without needing the installer's own uninstaller to be allowed to run
 //! (Smart App Control can block an unsigned uninstaller).
 //!
@@ -45,7 +46,7 @@ fn window_exe(hwnd: HWND) -> Option<PathBuf> {
 /// Close the running notch if it is this exe; wait up to 5 s.
 fn close_running() -> bool {
     unsafe {
-        let Ok(h) = FindWindowW(w!("WindyLandNotch"), None) else { return true };
+        let Ok(h) = FindWindowW(w!("DynamicIslandNotch"), None) else { return true };
         if h.0.is_null() {
             return true;
         }
@@ -65,14 +66,14 @@ fn close_running() -> bool {
 
 fn ask(text: &str, buttons: MESSAGEBOX_STYLE) -> MESSAGEBOX_RESULT {
     let t = HSTRING::from(text);
-    unsafe { MessageBoxW(None, &t, w!("Uninstall WindyLand"), buttons | MB_SETFOREGROUND) }
+    unsafe { MessageBoxW(None, &t, w!("Uninstall Dynamic Island Windows"), buttons | MB_SETFOREGROUND) }
 }
 
 /// What uninstalling would do, one step per line (also the --dry-run output).
 pub fn plan(keep_data: bool) -> Vec<String> {
     let exe = exe();
     let dir = exe.parent().map(Path::to_path_buf).unwrap_or_default();
-    let mut v = vec!["close WindyLand if this copy is running".to_string(), "disconnect Hermes, Claude Code and Codex".to_string()];
+    let mut v = vec!["close Dynamic Island Windows if this copy is running".to_string(), "disconnect Hermes, Claude Code and Codex".to_string()];
     if crate::tray::startup_points_here() {
         v.push("remove it from Windows startup".into());
     }
@@ -98,12 +99,12 @@ pub fn run(args: &[String]) -> i32 {
         return 0;
     }
     if !quiet {
-        if ask("Remove WindyLand from this PC?\n\nIt closes WindyLand, takes it out of startup and disconnects Hermes, Claude Code and Codex.", MB_OKCANCEL | MB_ICONQUESTION) != IDOK {
+        if ask("Remove Dynamic Island Windows from this PC?\n\nIt closes the app, takes it out of startup and disconnects Hermes, Claude Code and Codex.", MB_OKCANCEL | MB_ICONQUESTION) != IDOK {
             return 1;
         }
         if !keep {
             let r = ask(
-                "Also delete your WindyLand data?\n\nSettings, tasks, water log, Shelf list and pinned clipboard entries. Screenshots in Pictures\\Screenshots are kept either way.",
+                "Also delete your Dynamic Island Windows data?\n\nSettings, tasks, water log, Shelf list and pinned clipboard entries. Screenshots in Pictures\\Screenshots are kept either way.",
                 MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2,
             );
             keep = r != IDYES;
@@ -111,7 +112,7 @@ pub fn run(args: &[String]) -> i32 {
     }
     if !close_running() {
         if !quiet {
-            ask("WindyLand didn't close. Quit it from the tray icon and try again.", MB_OK | MB_ICONWARNING);
+            ask("Dynamic Island Windows didn't close. Quit it from the tray icon and try again.", MB_OK | MB_ICONWARNING);
         }
         return 2;
     }
@@ -142,7 +143,7 @@ pub fn run(args: &[String]) -> i32 {
     let _ = std::env::set_current_dir(&tmp);
     let _ = std::process::Command::new("cmd.exe").raw_arg(format!("/c {script}")).current_dir(&tmp).creation_flags(CREATE_NO_WINDOW).spawn();
     if !quiet {
-        ask("WindyLand was removed.", MB_OK | MB_ICONINFORMATION);
+        ask("Dynamic Island Windows was removed.", MB_OK | MB_ICONINFORMATION);
     }
     0
 }
