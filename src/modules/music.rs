@@ -459,6 +459,12 @@ pub struct Music {
     info: MediaInfo,
     art: Option<(u64, u32, ID2D1Bitmap)>,
     show_lyrics: bool,
+    /// Lyrics text size: 0 = small, 1 = medium, 2 = large.
+    lyric_size: u8,
+    /// Automatically scroll to the current line.
+    lyric_autoscroll: bool,
+    /// Emphasise the current line.
+    lyric_highlight: bool,
     lyrics: Arc<Mutex<(String, Lyrics)>>,
     lyric_scroll: f32,
     manual_scroll: Option<(f32, f64)>,
@@ -475,13 +481,17 @@ impl Music {
         } else {
             spawn_media(shared.clone(), rx, h);
         }
-        let show_lyrics = crate::store::Settings::load().extra.get("lyrics").map_or(false, |v| v == "1");
+        let s = crate::store::Settings::load().extra;
+        let show_lyrics = s.get("lyrics").map_or(false, |v| v == "1");
         Music {
             shared,
             tx,
             info: MediaInfo::default(),
             art: None,
             show_lyrics,
+            lyric_size: s.get("lyric_size").and_then(|v| v.parse().ok()).filter(|v| *v <= 2).unwrap_or(1),
+            lyric_autoscroll: s.get("lyric_autoscroll").map_or(true, |v| v == "1"),
+            lyric_highlight: s.get("lyric_highlight").map_or(true, |v| v == "1"),
             lyrics: Arc::new(Mutex::new((String::new(), Lyrics::Off))),
             lyric_scroll: 0.0,
             manual_scroll: None,
@@ -583,6 +593,18 @@ impl Music {
         let mut r = r;
         let foot = r.cut_bottom(14.0, 4.0);
         ui.text("Lyrics provided by LRCLIB", foot, 9.5, col::FAINT, Weight::Regular, Align::Right);
+        // Lyrics options row.
+        let mut bar = r.cut_top(22.0, 6.0);
+        ui.text("Lyrics", bar.cut_left(38.0, 6.0), 11.0, col::DIM, Weight::Regular, Align::Left);
+        let scells = bar.columns(3, 6.0);
+        for (i, (lab, idx)) in [("S", 0u8), ("M", 1), ("L", 2)].into_iter().enumerate() {
+            if let Some(cell) = scells.get(i) {
+                ui.chip(*cell, lab, 200 + i as u32, self.lyric_size == idx, col::ACCENT);
+            }
+        }
+        let mut bar2 = r.cut_top(20.0, 0.0);
+        ui.toggle(bar2.cut_left(160.0, 0.0), "Auto-scroll", self.lyric_autoscroll, 210, col::ACCENT);
+        ui.toggle(bar2.cut_left(160.0, 0.0), "Highlight line", self.lyric_highlight, 211, col::ACCENT);
         match state {
             Lyrics::Off | Lyrics::Loading => {
                 ui.text("Loading lyrics…", r, 12.0, col::DIM, Weight::Regular, Align::Center);
@@ -593,14 +615,14 @@ impl Music {
             Lyrics::Synced(lines) => {
                 let pos = self.info.position() + 0.25;
                 let cur = lines.iter().rposition(|(t, _)| *t <= pos);
-                let lh = 26.0;
+                let lh = match self.lyric_size { 0 => 22.0, 2 => 32.0, _ => 26.0 };
                 let target = cur.map_or(0.0, |c| c as f32 * lh - r.h / 2.0 + lh / 2.0);
                 if let Some((_, at)) = &mut self.manual_scroll {
                     if *at < 0.0 {
                         *at = ui.t;
                     }
                 }
-                let auto = match self.manual_scroll {
+                let auto = self.lyric_autoscroll && match self.manual_scroll {
                     Some((_, at)) if ui.t - at < 4.0 => false,
                     _ => {
                         self.manual_scroll = None;
@@ -628,11 +650,15 @@ impl Music {
                     let a = ui.alpha;
                     ui.alpha = a * (1.0 - d * 0.75);
                     let txt = if text.is_empty() { "♪" } else { text.as_str() };
-                    if is_cur {
-                        ui.text(txt, lr, 15.0, col::TEXT, Weight::Semi, Align::Left);
+                    let cur_size = match self.lyric_size { 0 => 12.0, 2 => 18.0, _ => 15.0 };
+                    let oth_size = match self.lyric_size { 0 => 10.0, 2 => 15.0, _ => 13.0 };
+                    if is_cur && self.lyric_highlight {
+                        ui.text(txt, lr, cur_size, col::TEXT, Weight::Semi, Align::Left);
+                    } else if is_cur {
+                        ui.text(txt, lr, cur_size, col::TEXT.with_a(0.7), Weight::Regular, Align::Left);
                     } else {
                         let c = if ui.hovered(lr) { col::TEXT.with_a(0.8) } else { col::DIM };
-                        ui.text(txt, lr, 13.0, c, Weight::Regular, Align::Left);
+                        ui.text(txt, lr, oth_size, c, Weight::Regular, Align::Left);
                     }
                     ui.alpha = a;
                     ui.hit(lr, A_LINE + i as u32);
@@ -649,7 +675,8 @@ impl Music {
                     if y + lh < r.y || y > r.b() {
                         continue;
                     }
-                    ui.text(text, Rect::new(r.x, y, r.w, lh), 12.0, col::DIM, Weight::Regular, Align::Left);
+                    let pl_size = match self.lyric_size { 0 => 10.0, 2 => 14.0, _ => 12.0 };
+                    ui.text(text, Rect::new(r.x, y, r.w, lh), pl_size, col::DIM, Weight::Regular, Align::Left);
                 }
                 ui.pop_clip();
             }
@@ -657,7 +684,11 @@ impl Music {
     }
 
     fn save_pref(&self, ctx: &mut Ctx) {
-        ctx.settings.extra.insert("lyrics".into(), (self.show_lyrics as u8).to_string());
+        let e = &mut ctx.settings.extra;
+        e.insert("lyrics".into(), (self.show_lyrics as u8).to_string());
+        e.insert("lyric_size".into(), self.lyric_size.to_string());
+        e.insert("lyric_autoscroll".into(), (self.lyric_autoscroll as u8).to_string());
+        e.insert("lyric_highlight".into(), (self.lyric_highlight as u8).to_string());
         ctx.settings.save();
     }
 }
@@ -670,6 +701,9 @@ impl Module for Music {
             A_NEXT => "Next track",
             A_SEEK => "Click to jump to this point in the song",
             A_LYRICS => "Show or hide synced lyrics",
+            i if (200..203).contains(&i) => "Lyrics text size",
+            210 => "Automatically scroll to the current line",
+            211 => "Emphasise the current line",
             i if i >= A_LINE && i < A_LINE + 10_000 => "Jump to this line",
             _ => "",
         }
@@ -751,6 +785,18 @@ impl Module for Music {
                 self.show_lyrics = !self.show_lyrics;
                 self.save_pref(ctx);
                 self.ensure_lyrics();
+            }
+            i if (200..203).contains(&i) => {
+                self.lyric_size = (i - 200) as u8;
+                self.save_pref(ctx);
+            }
+            210 => {
+                self.lyric_autoscroll = !self.lyric_autoscroll;
+                self.save_pref(ctx);
+            }
+            211 => {
+                self.lyric_highlight = !self.lyric_highlight;
+                self.save_pref(ctx);
             }
             i if i >= A_LINE => {
                 let idx = (i - A_LINE) as usize;

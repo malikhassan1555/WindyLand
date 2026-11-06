@@ -17,7 +17,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use crate::gfx::*;
 use crate::modules::{self, Ctx, Module, Toast};
 use crate::mascot::{self, Mood};
-use crate::store::{ClipMode, Edge, Mascot, NotchStyle, Settings, Sound};
+use crate::store::{ClipMode, Edge, Mascot, NotchStyle, Shape, Settings, Sound};
 use crate::time::Now;
 use crate::ui::{Hit, Ui};
 use crate::{dragdrop, sound, tray};
@@ -29,9 +29,9 @@ const WM_MOUSELEAVE: u32 = 0x02A3;
 /// Logical canvas (DIPs). The window is this big; transparent parts are click-through.
 const CANVAS_W: f32 = 780.0;
 const CANVAS_H: f32 = 360.0;
-const TAB_H: f32 = 30.0;
+const TAB_H: f32 = 24.0;
 /// Space between tab icons (tight: there are up to a dozen tabs).
-const TAB_GAP: f32 = 2.0;
+const TAB_GAP: f32 = 1.0;
 const PAD: f32 = 16.0;
 /// Tab bar hits use this module index.
 const APP_HIT: usize = usize::MAX;
@@ -41,8 +41,9 @@ const TOAST: usize = usize::MAX - 1;
 const SETTINGS: usize = usize::MAX - 2;
 /// Tab bar id of the gear button (other tab ids are module indexes).
 const GEAR: u32 = 1000;
-/// Size of the settings panel content (DIPs).
-const SETTINGS_SIZE: (f32, f32) = (640.0, 286.0);
+/// Size of the settings panel content (DIPs). 328 leaves room for a third
+/// mascot row (14 mascots + Clock need 3 rows x 5 cols).
+const SETTINGS_SIZE: (f32, f32) = (640.0, 328.0);
 /// Welcome tour panel content size, its hits' module index and action ids.
 const ONBOARD_SIZE: (f32, f32) = (600.0, 214.0);
 const ONBOARD: usize = usize::MAX - 3;
@@ -53,6 +54,7 @@ const O_BACK: u32 = 2;
 const O_SKIP: u32 = 3;
 const O_STYLE: u32 = 10; // + index into NotchStyle::ALL
 const O_EDGE: u32 = 20; // + index into Edge::ALL
+const O_SHAPE: u32 = 30; // + index into Shape::ALL
 const ONBOARD_STEPS: u8 = 5;
 /// Tour step 3: how to use it.
 const TOUR_TIPS: [(&str, &str, &str); 3] = [
@@ -102,6 +104,8 @@ const S_NOTIF_TEXT: u32 = 101;
 const S_NOTIF_BANNERS: u32 = 102;
 const S_NOTIF_UNMUTE: u32 = 103;
 const S_POLICY: u32 = 104;
+const S_SHAPE: u32 = 113; // + index into Shape::ALL
+const S_CLOCK_STYLE: u32 = 115; // + index: 12h, 24h, analog, fancy, minimal
 const S_MASCOT_ALWAYS: u32 = 105;
 const S_UPDATE_AUTO: u32 = 109;
 const S_MASCOT_POS: u32 = 106; // + 0 left, 1 centre, 2 right
@@ -326,7 +330,7 @@ impl App {
             let hinst = GetModuleHandleW(None)?;
             // Self-test and docs renders use their own class, so agent hooks
             // (and the uninstaller) only ever find the real notch.
-            let class = if crate::modules::agents::ISOLATED.load(std::sync::atomic::Ordering::Relaxed) { w!("WindyLandNotchTest") } else { w!("WindyLandNotch") };
+            let class = if crate::modules::agents::ISOLATED.load(std::sync::atomic::Ordering::Relaxed) { w!("DynamicIslandNotchTest") } else { w!("DynamicIslandNotch") };
             let wc = WNDCLASSEXW {
                 cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
                 lpfnWndProc: Some(wndproc),
@@ -339,7 +343,7 @@ impl App {
             let hwnd = CreateWindowExW(
                 WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
                 class,
-                w!("WindyLand"),
+                w!("Dynamic Island Windows"),
                 WS_POPUP,
                 0,
                 0,
@@ -460,17 +464,30 @@ impl App {
             let ph = (CANVAS_H * self.scale).ceil() as i32;
             let r = mi.rcWork;
             let pos = self.settings.pos.clamp(0.0, 1.0);
+            // A floating island sits a few px off the screen edge; a notch
+            // is glued to it. Moving the window shifts the whole canvas
+            // (including the notch and tooltip) so the gap stays constant.
+            const ISLAND_GAP: i32 = 10;
+            let gap = if self.settings.island() { ISLAND_GAP } else { 0 };
             let (x, y, anchor_px) = match self.settings.edge {
                 Edge::Top | Edge::Bottom => {
                     let c = r.left + ((r.right - r.left) as f32 * pos) as i32;
                     let x = (c - pw / 2).clamp(r.left, (r.right - pw).max(r.left));
-                    let y = if self.settings.edge == Edge::Top { r.top } else { r.bottom - ph };
+                    let y = if self.settings.edge == Edge::Top {
+                        r.top + gap
+                    } else {
+                        r.bottom - ph - gap
+                    };
                     (x, y, c - x)
                 }
                 Edge::Left | Edge::Right => {
                     let c = r.top + ((r.bottom - r.top) as f32 * pos) as i32;
                     let y = (c - ph / 2).clamp(r.top, (r.bottom - ph).max(r.top));
-                    let x = if self.settings.edge == Edge::Left { r.left } else { r.right - pw };
+                    let x = if self.settings.edge == Edge::Left {
+                        r.left + gap
+                    } else {
+                        r.right - pw - gap
+                    };
                     (x, y, c - y)
                 }
             };
@@ -918,18 +935,25 @@ impl App {
             Mode::Collapsed => {
                 let live = self.live_module().is_some();
                 let side_mascot = matches!(self.mascot_side(), Some(0 | 2));
-                match (self.look(), vertical) {
-                    (NotchStyle::Full, false) if live && side_mascot => (364.0, 34.0, 13.0),
-                    (NotchStyle::Full, false) if live => (300.0, 34.0, 13.0),
-                    (NotchStyle::Full, false) => (200.0, 32.0, 12.0),
-                    (NotchStyle::Full, true) if live => (130.0, 40.0, 14.0),
-                    (NotchStyle::Full, true) => (100.0, 40.0, 14.0),
-                    (NotchStyle::Compact, false) if live => (190.0, 22.0, 9.0),
-                    (NotchStyle::Compact, false) => (96.0, 20.0, 8.0),
-                    (NotchStyle::Compact, true) if live => (64.0, 26.0, 10.0),
-                    (NotchStyle::Compact, true) => (60.0, 26.0, 10.0),
-                    // No black notch at all; the bar is drawn separately.
-                    (NotchStyle::Pill | NotchStyle::Hidden, _) => (if live { 120.0 } else { 84.0 }, 0.0, 0.0),
+                if self.settings.island() {
+                    // Floating island: a proper pill, taller and wider than the
+                    // old thin bar so the clock and mascot have room. It grows
+                    // into the full panel on hover or an alert.
+                    (if live { 250.0 } else { 122.0 }, 34.0, 17.0)
+                } else {
+                    match (self.look(), vertical) {
+                        (NotchStyle::Full, false) if live && side_mascot => (364.0, 34.0, 13.0),
+                        (NotchStyle::Full, false) if live => (300.0, 34.0, 13.0),
+                        (NotchStyle::Full, false) => (200.0, 32.0, 12.0),
+                        (NotchStyle::Full, true) if live => (130.0, 40.0, 14.0),
+                        (NotchStyle::Full, true) => (100.0, 40.0, 14.0),
+                        (NotchStyle::Compact, false) if live => (190.0, 22.0, 9.0),
+                        (NotchStyle::Compact, false) => (96.0, 20.0, 8.0),
+                        (NotchStyle::Compact, true) if live => (64.0, 26.0, 10.0),
+                        (NotchStyle::Compact, true) => (60.0, 26.0, 10.0),
+                        // No black notch at all; the bar is drawn separately.
+                        (NotchStyle::Pill | NotchStyle::Hidden, _) => (if live { 120.0 } else { 84.0 }, 0.0, 0.0),
+                    }
                 }
             }
         }
@@ -1127,9 +1151,27 @@ impl App {
         self.hits.clear();
         self.gfx.begin(self.scale);
         let ear = (depth / 4.0).min(9.0);
-        let barless = matches!(self.look(), NotchStyle::Pill | NotchStyle::Hidden);
+        // A floating island is a rounded pill with a soft shadow, not a notch.
+        // The same rounded body is used while collapsed, in a toast and when
+        // fully open, so the hover grow/shrink stays smooth in every mode.
+        let island = self.settings.island();
+        let barless = matches!(self.look(), NotchStyle::Pill | NotchStyle::Hidden) || island;
         if depth >= 0.5 {
-            if let Some(geo) = self.gfx.notch_geometry(notch, rad, ear, edge) {
+            if island {
+                self.draw_island(notch, depth, mode);
+                self.gfx.push_clip(notch);
+                self.gfx.push_layer(None, content_alpha);
+                match mode {
+                    Mode::Expanded if self.onboarding.is_some() => self.draw_onboarding(goal, t),
+                    Mode::Expanded => self.draw_expanded(notch, goal, t),
+                    Mode::Toast => self.draw_toast(goal, t),
+                    Mode::Collapsed => self.draw_collapsed(goal, t),
+                }
+                self.gfx.pop_layer();
+                self.gfx.pop_clip();
+                // Keep the whole silhouette clickable even while content is fading.
+                self.hits.insert(0, Hit { rect: notch, module: APP_HIT, id: u32::MAX, tip: "" });
+            } else if let Some(geo) = self.gfx.notch_geometry(notch, rad, ear, edge) {
                 self.gfx.fill_geometry(&geo, col::NOTCH);
                 self.gfx.push_layer(Some(&geo), content_alpha);
                 match mode {
@@ -1144,7 +1186,7 @@ impl App {
                 self.hits.insert(0, Hit { rect: notch, module: APP_HIT, id: u32::MAX, tip: "" });
             }
         }
-        if barless {
+        if barless && !island {
             self.draw_bar(along, depth);
         }
         if mode != Mode::Expanded {
@@ -1418,9 +1460,9 @@ impl App {
         let mut right = Rect::new(left.r() + 20.0, r.y, r.r() - left.r() - 20.0, r.h);
         let label = |ui: &mut Ui, rr: Rect, s: &str| ui.text(s, rr, 11.5, col::DIM, Weight::Semi, Align::Left);
 
-        label(&mut ui, left.cut_top(16.0, 4.0), "Notch style");
-        let row = left.cut_top(26.0, 10.0);
-        for (i, (cell, s)) in row.columns(4, 6.0).into_iter().zip(NotchStyle::ALL).enumerate() {
+        label(&mut ui, left.cut_top(13.0, 2.0), "Style");
+        let row = left.cut_top(24.0, 6.0);
+        for (i, (cell, s)) in row.columns(4, 4.0).into_iter().zip(NotchStyle::ALL).enumerate() {
             let name = match s {
                 NotchStyle::Full => "Full",
                 NotchStyle::Compact => "Compact",
@@ -1430,27 +1472,33 @@ impl App {
             ui.chip(cell, name, S_STYLE + i as u32, st.style == s, accent);
         }
 
-        label(&mut ui, left.cut_top(16.0, 4.0), "Position (or right-drag the notch)");
-        let mut row = left.cut_top(26.0, 10.0);
-        let center = row.cut_right(70.0, 6.0);
-        for (i, (cell, e)) in row.columns(4, 6.0).into_iter().zip(Edge::ALL).enumerate() {
+        label(&mut ui, left.cut_top(13.0, 2.0), "Position (or right-drag the notch)");
+        let mut row = left.cut_top(24.0, 6.0);
+        let center = row.cut_right(62.0, 4.0);
+        for (i, (cell, e)) in row.columns(4, 4.0).into_iter().zip(Edge::ALL).enumerate() {
             ui.chip(cell, e.label(), S_EDGE + i as u32, st.edge == e, accent);
         }
         ui.button(center, "Center", S_CENTER);
 
-        let mut mrow = left.cut_top(22.0, 4.0);
-        for (k, name) in ["Left", "Center", "Right"].iter().enumerate().rev() {
-            ui.chip(mrow.cut_right(50.0, 4.0), name, S_MASCOT_POS + k as u32, st.mascot_pos == k as u8, accent);
+        label(&mut ui, left.cut_top(13.0, 2.0), "Shape");
+        let shape_row = left.cut_top(24.0, 6.0);
+        for (i, (cell, s)) in shape_row.columns(2, 4.0).into_iter().zip(Shape::ALL).enumerate() {
+            ui.chip(cell, s.label(), S_SHAPE + i as u32, st.shape == s, accent);
         }
-        mrow.cut_right(6.0, 0.0);
-        ui.chip(mrow.cut_right(60.0, 0.0), "Always", S_MASCOT_ALWAYS, st.mascot_always, accent);
-        label(&mut ui, mrow, "Mascot (Full style)");
-        let grid = left.cut_top(90.0, 8.0);
-        let rows = [Rect::new(grid.x, grid.y, grid.w, 42.0), Rect::new(grid.x, grid.y + 48.0, grid.w, 42.0)];
+
+        let mut mrow = left.cut_top(20.0, 2.0);
+        for (k, name) in ["Left", "Center", "Right"].iter().enumerate().rev() {
+            ui.chip(mrow.cut_right(46.0, 3.0), name, S_MASCOT_POS + k as u32, st.mascot_pos == k as u8, accent);
+        }
+        mrow.cut_right(5.0, 0.0);
+        ui.chip(mrow.cut_right(54.0, 0.0), "Always", S_MASCOT_ALWAYS, st.mascot_always, accent);
+        label(&mut ui, mrow, "Mascot");
+        let grid = left.cut_top(84.0, 6.0);
+        let rows = grid.rows(3, 3.0);
         // Tile 0 is "Clock" (no mascot), then every mascot.
         let mut k = 0usize;
         for row in rows {
-            for cell in row.columns(5, 6.0) {
+            for cell in row.columns(5, 4.0) {
                 if k > Mascot::ALL.len() {
                     break;
                 }
@@ -1463,16 +1511,16 @@ impl App {
                 } else {
                     col::BTN
                 };
-                ui.fill_rr(cell, 10.0, bg);
+                ui.fill_rr(cell, 8.0, bg);
                 if selected {
-                    ui.stroke_rr(cell, 10.0, accent.with_a(0.8), 1.2);
+                    ui.stroke_rr(cell, 8.0, accent.with_a(0.8), 1.2);
                 }
                 let mut c = cell;
-                let name_r = c.cut_bottom(14.0, 0.0);
-                let pic = c.inset_xy(4.0, 3.0);
+                let name_r = c.cut_bottom(11.0, 0.0);
+                let pic = c.inset_xy(4.0, 1.5);
                 if k == 0 {
-                    ui.text(&Now::get().hhmm(), pic, 12.0, col::TEXT, Weight::Semi, Align::Center);
-                    ui.text("Clock", name_r, 9.5, col::DIM, Weight::Regular, Align::Center);
+                    ui.text(&Now::get().hhmm(), pic, 10.5, col::TEXT, Weight::Semi, Align::Center);
+                    ui.text("Clock", name_r, 8.5, col::DIM, Weight::Regular, Align::Center);
                 } else {
                     let m = Mascot::ALL[k - 1];
                     let mood = if hov { Mood::Wave } else { Mood::Eyes };
@@ -1480,21 +1528,18 @@ impl App {
                     ui.push_clip(cell);
                     mascot::draw(&mut ui, pic, m, mood, t, look);
                     ui.pop_clip();
-                    ui.text(m.label(), name_r, 9.5, if selected { col::TEXT } else { col::DIM }, Weight::Regular, Align::Center);
+                    ui.text(m.label(), name_r, 8.5, if selected { col::TEXT } else { col::DIM }, Weight::Regular, Align::Center);
                 }
                 ui.hit_tip(cell, S_MASCOT + k as u32, "");
                 k += 1;
             }
         }
 
-        label(&mut ui, left.cut_top(16.0, 4.0), "Sound for reminders (click to hear it)");
+        label(&mut ui, left.cut_top(13.0, 2.0), "Clock");
         let row = left.cut_top(24.0, 0.0);
-        for (i, (cell, s)) in row.columns(Sound::ALL.len(), 6.0).into_iter().zip(Sound::ALL).enumerate() {
-            ui.chip(cell, s.label(), S_SOUND + i as u32, st.sound == s, accent);
+        for (i, (cell, name)) in row.columns(5, 4.0).into_iter().zip(["12h", "24h", "Analog", "Fancy", "Minimal"]).enumerate() {
+            ui.chip(cell, name, S_CLOCK_STYLE + i as u32, st.clock_style == i as u8, accent);
         }
-        let foot = left.cut_bottom(14.0, 0.0);
-        let v = format!("WindyLand {}  ·  right-click the notch for settings", crate::modules::update::VERSION);
-        ui.text(&v, foot, 10.0, col::FAINT, Weight::Regular, Align::Left);
 
         // The right column has three pages.
         let seg = right.cut_top(26.0, 12.0);
@@ -1508,10 +1553,10 @@ impl App {
         };
         if page == 0 {
             ui.toggle(right.cut_top(26.0, 2.0), "Start with Windows", startup, S_STARTUP, accent);
-            ui.toggle(right.cut_top(26.0, 2.0), "Volume overlay", st.volume_overlay, S_VOLUME, accent);
-            ui.toggle(right.cut_top(26.0, 2.0), "12-hour clock", st.clock12, S_CLOCK12, accent);
-            ui.toggle(right.cut_top(26.0, 2.0), "Slim down over maximized apps", st.make_room, S_MAKE_ROOM, accent);
-            ui.toggle(right.cut_top(26.0, 8.0), "Check for updates automatically", st.update_check, S_UPDATE_AUTO, accent);
+            let (a, b) = half(&mut right, 2.0);
+            ui.toggle(a, "Volume overlay", st.volume_overlay, S_VOLUME, accent);
+            ui.toggle(b, "Slim over max apps", st.make_room, S_MAKE_ROOM, accent);
+            ui.toggle(right.cut_top(26.0, 6.0), "Check for updates automatically", st.update_check, S_UPDATE_AUTO, accent);
             let (a, b) = half(&mut right, 6.0);
             ui.button(a, if checking { "Checking..." } else { "Check for updates" }, S_UPDATES);
             ui.button(b, "Open data folder", S_DATA);
@@ -1519,25 +1564,33 @@ impl App {
             ui.button(a, "GitHub page", S_GITHUB);
             ui.button(b, "Privacy policy", S_POLICY);
             let (a, _) = half(&mut right, 6.0);
-            ui.button_c(a, "Quit WindyLand", S_QUIT, col::RED.with_a(0.18), col::RED);
-            // (the last row's 6 DIP gap is not content)
-            self.settings_room[0] = r.b() - right.y + 6.0;
+            ui.button_c(a, "Quit app", S_QUIT, col::RED.with_a(0.18), col::RED);
+            label(&mut ui, right.cut_top(13.0, 4.0), "Sound for reminders (click to hear it)");
+            let sound_rows = [right.cut_top(22.0, 2.0), right.cut_top(22.0, 0.0)];
+            for (ri, row) in sound_rows.into_iter().enumerate() {
+                for (ci, cell) in row.columns(3, 4.0).into_iter().enumerate() {
+                    let idx = ri * 3 + ci;
+                    let s = Sound::ALL[idx];
+                    ui.chip(cell, s.label(), S_SOUND + idx as u32, st.sound == s, accent);
+                }
+            }
+            self.settings_room[0] = r.b() - right.y;
         } else if page == 2 {
             label(&mut ui, right.cut_top(16.0, 4.0), "Show these panels");
             let rows = (panels.len() + 1) / 2;
-            let grid = right.cut_top(rows as f32 * 26.0 + (rows.max(1) - 1) as f32 * 6.0, 8.0);
-            for (row_i, row) in grid.rows(rows, 6.0).into_iter().enumerate() {
+            let grid = right.cut_top(rows as f32 * 21.0 + (rows.max(1) - 1) as f32 * 2.0, 6.0);
+            for (row_i, row) in grid.rows(rows, 2.0).into_iter().enumerate() {
                 for (col_i, cell) in row.columns(2, 6.0).into_iter().enumerate() {
                     let Some(&(i, name, icon, on)) = panels.get(row_i * 2 + col_i) else { continue };
                     ui.chip(cell, "", S_PANEL + i as u32, on, accent);
                     let mut c = cell.inset_xy(9.0, 0.0);
                     let ic = c.cut_left(14.0, 6.0);
                     let fg = if on { col::TEXT } else { col::FAINT };
-                    ui.icon(icon, ic, 11.5, fg);
-                    ui.text(name, c, 12.0, fg, Weight::Semi, Align::Left);
+                    ui.icon(icon, ic, 11.0, fg);
+                    ui.text(name, c, 11.0, fg, Weight::Semi, Align::Left);
                 }
             }
-            ui.text_wrap("A hidden panel is off: no tab, no reminders. Scroll the wheel on the open notch to switch panels.", right.cut_top(28.0, 0.0), 10.5, col::DIM, Weight::Regular, Align::Left);
+            ui.text_wrap("A hidden panel is off: no tab, no reminders. Scroll the wheel on the open notch to switch panels.", right.cut_top(24.0, 0.0), 10.0, col::DIM, Weight::Regular, Align::Left);
             self.settings_room[2] = r.b() - right.y;
         } else {
             label(&mut ui, right.cut_top(16.0, 2.0), "Windows notifications");
@@ -1613,11 +1666,21 @@ impl App {
                 }
             }
             S_POLICY => unsafe {
-                ShellExecuteW(None, w!("open"), w!("https://github.com/shabab239/WindyLand/blob/main/PRIVACY.md"), None, None, SW_SHOWNORMAL);
+                ShellExecuteW(None, w!("open"), w!("https://github.com/malikhassan1555/WindyLand/blob/main/PRIVACY.md"), None, None, SW_SHOWNORMAL);
             },
             S_NOTIF_ON => self.settings.notif_on = !self.settings.notif_on,
             S_NOTIF_TEXT => self.settings.notif_text = !self.settings.notif_text,
             S_NOTIF_BANNERS => crate::modules::notifs::open_uri(w!("ms-settings:notifications")),
+            i if (S_SHAPE..S_SHAPE + Shape::ALL.len() as u32).contains(&i) => {
+                self.settings.shape = Shape::ALL[(i - S_SHAPE) as usize];
+                // Move the window in/out by the floating gap at once.
+                self.place();
+            }
+            i if (S_CLOCK_STYLE..S_CLOCK_STYLE + 5).contains(&i) => {
+                self.settings.clock_style = (i - S_CLOCK_STYLE) as u8;
+                self.settings.clock12 = self.settings.clock_style != 1;
+                crate::time::H12.store(self.settings.clock12, std::sync::atomic::Ordering::Relaxed);
+            }
             S_NOTIF_UNMUTE => {
                 self.settings.extra.remove(crate::modules::notifs::MUTED_KEY);
             }
@@ -1713,7 +1776,7 @@ impl App {
             let x = dots.x + k as f32 * 12.0 + if k > step { 10.0 } else { 0.0 };
             ui.fill_rr(Rect::new(x, dots.cy() - 3.0, w, 6.0), 3.0, c);
         }
-        ui.text("Welcome to WindyLand", head, 15.0, col::TEXT, Weight::Semi, Align::Left);
+        ui.text("Welcome to Dynamic Island Windows", head, 15.0, col::TEXT, Weight::Semi, Align::Left);
         let (question, hint) = match step {
             0 => ("First, how should the notch look when it's closed?", "Pick one. You can change it anytime in Settings."),
             1 => ("Where should it sit?", "Or right-drag the notch to any edge, on any screen."),
@@ -1723,7 +1786,7 @@ impl App {
         };
         ui.text(question, r.cut_top(20.0, 2.0), 12.5, col::DIM, Weight::Regular, Align::Left);
         let mut foot = r.cut_bottom(28.0, 0.0);
-        let next = if step + 1 >= ONBOARD_STEPS { "Start using WindyLand" } else { "Next" };
+        let next = if step + 1 >= ONBOARD_STEPS { "Start using the island" } else { "Next" };
         let nw = ui.measure(next, 12.0, Weight::Semi) + 40.0;
         ui.button_accent(foot.cut_right(nw, 8.0), next, O_NEXT, accent);
         if step + 1 >= ONBOARD_STEPS {
@@ -1921,6 +1984,32 @@ impl App {
         self.gfx.alpha = 1.0;
     }
 
+    /// Draw the floating island: a fully rounded pill with a soft shadow,
+    /// sitting a few pixels off the screen edge. The shadow makes it look
+    /// lifted; the pill shape replaces the notch_geometry entirely for this
+    /// mode. The same silhouette is used while open, so growing is seamless.
+    fn draw_island(&mut self, notch: Rect, depth: f32, mode: Mode) {
+        let rad = if mode == Mode::Expanded { (depth * 0.24).clamp(20.0, 30.0) } else { depth * 0.5 };
+        // Soft shadow: a larger, very soft rounded rect behind the pill.
+        let spread = if mode == Mode::Collapsed { 10.0 } else { 8.0 };
+        let down = 5.0;
+        let shadow = Rect::new(notch.x - spread, notch.y + down, notch.w + 2.0 * spread, notch.h + spread);
+        let a = self.gfx.alpha;
+        self.gfx.fill_rr(shadow, rad + spread * 0.6, col::NOTCH.with_a(0.22));
+        let tighter = shadow.inset(3.0);
+        self.gfx.fill_rr(tighter, rad + spread * 0.3, col::NOTCH.with_a(0.32));
+        self.gfx.alpha = a;
+        // Pill body.
+        self.gfx.fill_rr(notch, rad, col::NOTCH);
+        // A faint rim and top highlight make the floating shape readable on
+        // both dark and light wallpapers.
+        self.gfx.stroke_rr(notch, rad, col::TEXT.with_a(0.10), 1.0);
+        if mode != Mode::Expanded {
+            let highlight = Rect::new(notch.x + 1.0, notch.y + 1.0, notch.w - 2.0, depth * 0.36);
+            self.gfx.fill_rr(highlight, rad * 0.8, col::TEXT.with_a(0.06));
+        }
+    }
+
     fn draw_collapsed(&mut self, goal: Rect, t: f64) {
         let mouse = self.mouse;
         let compact = self.look() == NotchStyle::Compact;
@@ -1928,6 +2017,8 @@ impl App {
         let side = self.mascot_side();
         let mood_t = (t - self.mood_since) as f32;
         let fade = (mood_t / 0.6).clamp(0.0, 1.0);
+        // The island body and shadow are drawn by render(); draw_collapsed
+        // only draws the clock, mascot or live activity on top of it.
         if let Some(i) = self.live_module() {
             // A side mascot takes a strip of the (wider) notch; a centred one
             // sits between the two wings.
@@ -1989,7 +2080,7 @@ impl App {
             Mood::Clock => {
                 let now = Now::get();
                 let size = if compact { 11.0 } else { 14.0 };
-                if vertical {
+                if vertical && self.settings.clock_style <= 1 {
                     // Stacked hours over minutes.
                     let half = area.h.min(size * 2.6) / 2.0;
                     let top = Rect::new(area.x, area.cy() - half, area.w, half);
@@ -1997,7 +2088,52 @@ impl App {
                     ui.text(&format!("{:02}", now.hour), top, size, col::TEXT, Weight::Semi, Align::Center);
                     ui.text(&format!("{:02}", now.min), bot, size, col::DIM, Weight::Semi, Align::Center);
                 } else {
-                    ui.text(&now.hhmm(), area, size, col::TEXT, Weight::Semi, Align::Center);
+                    match self.settings.clock_style {
+                        2 => {
+                            // Analog: a small face with hour, minute and second hands.
+                            let rad = (area.h.min(area.w) * 0.5 - 2.0).clamp(8.0, 22.0);
+                            let (cx, cy) = (area.cx(), area.cy());
+                            ui.circle(cx, cy, rad, col::TEXT.with_a(0.10));
+                            ui.stroke_circle(cx, cy, rad, col::TEXT.with_a(0.55), 1.2);
+                            for k in 0..12 {
+                                let a = k as f32 / 12.0 * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+                                let r0 = rad - if k % 3 == 0 { 3.5 } else { 2.0 };
+                                ui.line(cx + a.cos() * r0, cy + a.sin() * r0, cx + a.cos() * (rad - 1.0), cy + a.sin() * (rad - 1.0), col::DIM, if k % 3 == 0 { 1.3 } else { 0.8 });
+                            }
+                            let h = (now.hour % 12) as f32 + now.min as f32 / 60.0;
+                            let m = now.min as f32 + now.sec as f32 / 60.0;
+                            let ha = h / 12.0 * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+                            let ma = m / 60.0 * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+                            ui.line(cx, cy, cx + ha.cos() * rad * 0.5, cy + ha.sin() * rad * 0.5, col::TEXT, 2.4);
+                            ui.line(cx, cy, cx + ma.cos() * rad * 0.75, cy + ma.sin() * rad * 0.75, col::TEXT, 1.6);
+                            ui.circle(cx, cy, 2.0, col::ACCENT);
+                        }
+                        3 => {
+                            // Fancy: soft accent glow behind bright digits.
+                            let text = now.hhmm();
+                            for k in 0..3 {
+                                let glow = Rect::new(area.x, area.y, area.w, area.h).inset(-(k as f32 + 1.0) * 1.5);
+                                ui.alpha = 0.10;
+                                ui.text(&text, glow, 17.0 + k as f32, col::ACCENT, Weight::Semi, Align::Center);
+                            }
+                            ui.alpha = 1.0;
+                            ui.text(&text, area, 17.0, col::ACCENT, Weight::Semi, Align::Center);
+                        }
+                        4 => {
+                            // Minimal: hours and minutes with a quiet colon.
+                            let hh = if self.settings.clock12 { format!("{}", match now.hour % 12 { 0 => 12, h => h }) } else { format!("{:02}", now.hour) };
+                            let mid = Rect::new(area.cx() - 4.0, area.y, 8.0, area.h);
+                            let left = Rect::new(area.x, area.y, area.w / 2.0 - 4.0, area.h);
+                            let right = Rect::new(area.cx() + 4.0, area.y, area.w / 2.0 - 4.0, area.h);
+                            ui.text(&hh, left, 15.0, col::TEXT, Weight::Semi, Align::Right);
+                            ui.text(":", mid, 15.0, col::DIM, Weight::Regular, Align::Center);
+                            ui.text(&format!("{:02}", now.min), right, 15.0, col::TEXT, Weight::Semi, Align::Left);
+                        }
+                        _ => {
+                            let text = if self.settings.clock_style == 1 { format!("{:02}:{:02}", now.hour, now.min) } else { now.hhmm() };
+                            ui.text(&text, area, size, col::TEXT, Weight::Semi, Align::Center);
+                        }
+                    }
                 }
             }
             m => {
@@ -2512,6 +2648,11 @@ fn find(a: &App, title: &str) -> Option<usize> {
 
 /// Exercise every view and the main flows without showing the window.
 pub fn selftest() -> String {
+    let mut report = String::new();
+    match modules::prayer::run_validation_tests() {
+        Ok(worst) => report += &format!("OK prayer calculations (vs aladhan for Lahore & Bhakkar, worst {} min)\n", worst),
+        Err(e) => report += &format!("FAIL prayer calculations: {}\n", e),
+    }
     // Let the media thread find the current session first.
     std::thread::sleep(std::time::Duration::from_secs(3));
     with_app(|a| {
@@ -3352,7 +3493,7 @@ pub fn selftest() -> String {
                     tight.push(s);
                 }
             }
-            let last_w = ONBOARD_SIZE.0 - 8.0 - (a.gfx.measure("Start using WindyLand", 12.0, Weight::Semi) + 48.0) - 118.0 - 78.0;
+            let last_w = ONBOARD_SIZE.0 - 8.0 - (a.gfx.measure("Start using the island", 12.0, Weight::Semi) + 48.0) - 118.0 - 78.0;
             if a.gfx.measure("That's it. Enjoy!", 11.0, Weight::Regular) > last_w || a.gfx.measure("Open Settings", 12.0, Weight::Semi) > 110.0 - 16.0 {
                 tight.push("last step footer");
             }
@@ -3393,7 +3534,7 @@ pub fn selftest() -> String {
             let right_w = SETTINGS_SIZE.0 - 372.0 - 20.0;
             let btn_w = (right_w - 8.0) / 2.0 - 16.0;
             let mut tight = Vec::new();
-            for s in ["Check for updates", "Open data folder", "GitHub page", "Privacy policy", "Quit WindyLand", "Checking..."] {
+            for s in ["Check for updates", "Open data folder", "GitHub page", "Privacy policy", "Quit app", "Checking..."] {
                 if a.gfx.measure(s, 12.0, Weight::Semi) > btn_w {
                     tight.push(s);
                 }
@@ -3410,7 +3551,7 @@ pub fn selftest() -> String {
                     tight.push(clip_mode_short(m));
                 }
             }
-            if a.gfx.measure("WindyLand 0.0.00  ·  right-click the notch for settings", 10.0, Weight::Regular) > 372.0 {
+            if a.gfx.measure("Dynamic Island Windows 0.0.00  ·  right-click the notch for settings", 10.0, Weight::Regular) > 372.0 {
                 tight.push("footer");
             }
             for s in ["Windows banners", "Unmute 12 apps", "No muted apps"] {
@@ -3561,7 +3702,7 @@ pub fn selftest() -> String {
                 }
             };
             let saved = |k: &str| crate::store::read("prayer.txt").lines().any(|l| l.trim() == k);
-            let city = clickm(a, 1) && clickm(a, 14) && saved("city=Sylhet");
+            let city = clickm(a, 1) && clickm(a, 10) && saved("city=Bhakkar");
             out += &snap(a, "prayer location page");
             let method = clickm(a, 4) && clickm(a, 51) && saved("method=mwl") && clickm(a, 61) && clickm(a, 60) && saved("asr=shafi");
             out += &snap(a, "prayer method page");
@@ -3582,7 +3723,7 @@ pub fn selftest() -> String {
             a.on_key(0x0D);
             custom = custom && saved("city=custom") && saved("lat=21.4300") && saved("lon=92.0100") && a.keyboard.is_none();
             clickm(a, 10);
-            let back = clickm(a, 2) && saved("city=Dhaka") && saved("method=karachi") && saved("asr=hanafi");
+            let back = clickm(a, 2) && saved("city=Bhakkar") && saved("method=karachi") && saved("asr=hanafi");
             out += &format!(
                 "{:<4} prayer settings: city, method, Asr school, minute nudges and typed coordinates save {:?}\n",
                 if city && method && adjust && custom && back { "OK" } else { "FAIL" },
@@ -4922,7 +5063,7 @@ pub fn selftest() -> String {
                 out += &format!("INFO {}: {s}\n", a.modules[i].title());
             }
         }
-        out
+        format!("{}{}", report, out)
     })
     .unwrap_or_else(|| "app not running".into())
 }
@@ -5596,14 +5737,16 @@ fn settings_tip(id: u32) -> &'static str {
         90 => "Style, startup and updates",
         91 => "Notifications, mic dots and clipboard",
         92 => "Show or hide panels",
-        S_STARTUP => "Start WindyLand when you sign in to Windows",
+        S_STARTUP => "Start Dynamic Island Windows when you sign in to Windows",
         S_VOLUME => "Show a bar when you change the volume",
         S_UPDATE_AUTO => "Look for new versions twice a day",
         S_UPDATES => "Look for a new version now",
         S_DATA => "Open the folder where your data is kept",
         S_GITHUB => "Source code, releases and issues",
-        S_POLICY => "What WindyLand keeps and reads",
-        S_QUIT => "Close WindyLand (start it again from the Start menu)",
+        S_POLICY => "What the app keeps and reads",
+        S_QUIT => "Close Dynamic Island Windows (start it again from the Start menu)",
+        i if (S_SHAPE..S_SHAPE + Shape::ALL.len() as u32).contains(&i) => "Attach the notch to the edge, or float it like a Dynamic Island",
+        i if (S_CLOCK_STYLE..S_CLOCK_STYLE + 5).contains(&i) => "Clock appearance",
         S_NOTIF_ON => "Show other apps' Windows notifications in the notch",
         S_NOTIF_TEXT => "Off: only the app name shows",
         S_NOTIF_BANNERS => "Windows' own notification settings",

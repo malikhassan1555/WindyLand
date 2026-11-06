@@ -69,6 +69,12 @@ pub fn draw(ui: &mut Ui, area: Rect, kind: Mascot, mood: Mood, t: f64, look: (f3
         Mascot::Sprout => sprout(ui, &p),
         Mascot::Owl => owl(ui, &p),
         Mascot::Panda => panda(ui, &p),
+        Mascot::Fox => fox(ui, &p),
+        Mascot::Bunny => bunny(ui, &p),
+        Mascot::Bear => bear(ui, &p),
+        Mascot::Frog => frog(ui, &p),
+        Mascot::Dino => dino(ui, &p),
+        Mascot::OwlKing => owl_king(ui, &p),
     };
     match mood {
         Mood::Doze => zzz(ui, p.cx + half + 4.0 * s, p.cy, s, t),
@@ -345,4 +351,200 @@ fn panda(ui: &mut Ui, p: &Pose) -> f32 {
     ui.ellipse(p.x(0.0), p.y(5.0), 2.0 * s, 1.3 * s, dark);
     ui.arc(p.x(0.0), p.y(5.6), 2.2 * s, 2.4, 1.5, dark, 0.9 * s);
     14.0 * s
+}
+
+/// A friendly orange fox (an original character).
+fn fox(ui: &mut Ui, p: &Pose) -> f32 {
+    let s = p.s;
+    let fir = hex(0xE87E3A);
+    let cream = hex(0xFFE7C9);
+    let ink = hex(0x241608);
+    // Pointy ears with cream tips.
+    for side in [-1.0f32, 1.0] {
+        ui.polygon(&[(p.x(side * 12.5), p.y(-6.0)), (p.x(side * 11.0), p.y(-14.0)), (p.x(side * 3.5), p.y(-8.5))], fir);
+        ui.polygon(&[(p.x(side * 10.2), p.y(-7.5)), (p.x(side * 9.7), p.y(-11.8)), (p.x(side * 6.5), p.y(-8.5))], cream);
+    }
+    // Cheeky face: orange top, cream cheeks.
+    ui.ellipse(p.x(0.0), p.y(0.5), 12.5 * s, 10.5 * s, fir);
+    for side in [-1.0f32, 1.0] {
+        ui.polygon(&[(p.x(side * 1.0), p.y(1.0)), (p.x(side * 12.0), p.y(2.0)), (p.x(side * 11.0), p.y(10.5)), (p.x(0.0), p.y(11.0))], cream);
+    }
+    eye_pair(ui, p, 5.2, -0.5, 2.0, 2.5, ink, 0.5);
+    if let EyeState::Open(o) = p.eye {
+        if o > 0.6 {
+            for side in [-1.0f32, 1.0] {
+                ui.circle(p.x(side * 5.2 + 0.7) + p.look.0 * s * 0.5, p.y(-1.3) + p.look.1 * s * 0.5, 0.6 * s, col::TEXT);
+            }
+        }
+    }
+    // Nose and smile.
+    ui.ellipse(p.x(0.0), p.y(6.0), 1.8 * s, 1.2 * s, ink);
+    ui.arc(p.x(0.0), p.y(6.6), 2.6 * s, 2.2, 1.9, ink, 0.9 * s);
+    // Whisker dashes so it reads different from the cat at a glance.
+    for side in [-1.0f32, 1.0] {
+        ui.line(p.x(side * 9.0), p.y(5.5), p.x(side * 12.0), p.y(5.0), ink.with_a(0.5), 0.7 * s);
+    }
+    15.0 * s
+}
+
+/// A soft white bunny with long twitchy ears (an original character).
+fn bunny(ui: &mut Ui, p: &Pose) -> f32 {
+    let s = p.s;
+    let fur = hex(0xEDE6DA);
+    let ink = hex(0x2A1F1A);
+    // Long ears behind the head (they twitch a little).
+    let twitch = if p.eye == EyeState::Happy { 1.2 } else { 0.4 };
+    for side in [-1.0f32, 1.0] {
+        ui.fill_rr(Rect::new(p.x(side * 5.0) - 3.2 * s, p.y(-16.5) - twitch * s, 6.4 * s, 16.0 * s), 3.2 * s, fur);
+        ui.fill_rr(Rect::new(p.x(side * 5.0) - 1.5 * s, p.y(-13.5) - twitch * s, 3.0 * s, 10.0 * s), 1.5 * s, hex(0xFF8FA3));
+    }
+    ui.ellipse(p.x(0.0), p.y(2.0), 12.0 * s, 9.5 * s, fur);
+    eye_pair(ui, p, 5.0, 0.5, 2.0, 2.5, ink, 0.5);
+    if let EyeState::Open(o) = p.eye {
+        if o > 0.6 {
+            for side in [-1.0f32, 1.0] {
+                ui.circle(p.x(side * 5.0 + 0.7) + p.look.0 * s * 0.5, p.y(-0.3) + p.look.1 * s * 0.5, 0.6 * s, col::TEXT);
+            }
+        }
+    }
+    // Buck teeth: a little pink nose and a white tooth gap.
+    ui.polygon(&[(p.x(-1.6), p.y(4.5)), (p.x(1.6), p.y(4.5)), (p.x(0.0), p.y(6.2))], hex(0xFF8FA3));
+    ui.line(p.x(0.0), p.y(6.2), p.x(0.0), p.y(8.5), ink.with_a(0.6), 0.8 * s);
+    ui.arc(p.x(-1.5), p.y(6.4), 1.5 * s, 3.4, 1.6, ink.with_a(0.8), 0.8 * s);
+    ui.arc(p.x(1.5), p.y(6.4), 1.5 * s, 1.3, 1.6, ink.with_a(0.8), 0.8 * s);
+    // Blush.
+    for side in [-1.0f32, 1.0] {
+        ui.circle(p.x(side * 8.5), p.y(4.0), 1.8 * s, hex(0xFF8FA3).with_a(0.65));
+    }
+    13.0 * s
+}
+
+/// A round brown bear (an original character).
+fn bear(ui: &mut Ui, p: &Pose) -> f32 {
+    let s = p.s;
+    let fur = hex(0x9C6B43);
+    let belly = hex(0xD9B98A);
+    let ink = hex(0x26180C);
+    // Half-circle ears.
+    for side in [-1.0f32, 1.0] {
+        ui.circle(p.x(side * 9.0), p.y(-7.5), 4.0 * s, fur);
+        ui.circle(p.x(side * 9.0), p.y(-7.5), 2.0 * s, belly);
+    }
+    ui.ellipse(p.x(0.0), p.y(1.0), 12.5 * s, 10.5 * s, fur);
+    // Pale muzzle.
+    ui.ellipse(p.x(0.0), p.y(6.0), 5.0 * s, 4.0 * s, belly);
+    eye_pair(ui, p, 5.4, -0.5, 2.0, 2.5, ink, 0.55);
+    if let EyeState::Open(o) = p.eye {
+        if o > 0.6 {
+            for side in [-1.0f32, 1.0] {
+                ui.circle(p.x(side * 5.4 + 0.7) + p.look.0 * s * 0.5, p.y(-1.3) + p.look.1 * s * 0.5, 0.6 * s, col::TEXT);
+            }
+        }
+    }
+    // Nose and open smile on the muzzle.
+    ui.ellipse(p.x(0.0), p.y(4.2), 2.0 * s, 1.3 * s, ink);
+    ui.arc(p.x(0.0), p.y(5.0), 2.4 * s, 2.2, 1.9, ink, 0.9 * s);
+    15.0 * s
+}
+
+/// A wide-mouthed green frog (an original character).
+fn frog(ui: &mut Ui, p: &Pose) -> f32 {
+    let s = p.s;
+    let skin = hex(0x53C065);
+    // Back feet peeking out at the bottom corners.
+    for side in [-1.0f32, 1.0] {
+        ui.ellipse(p.x(side * 11.5), p.y(10.0), 4.0 * s, 2.5 * s, skin);
+    }
+    // Plump body.
+    ui.ellipse(p.x(0.0), p.y(3.0), 13.0 * s, 9.5 * s, skin);
+    // Eye bumps with white and dark pupils.
+    for side in [-1.0f32, 1.0] {
+        ui.circle(p.x(side * 6.5), p.y(-6.0), 4.2 * s, skin);
+        match p.eye {
+            EyeState::Open(o) => {
+                ui.circle(p.x(side * 6.5), p.y(-6.0), 3.0 * s, col::TEXT);
+                if o > 0.4 {
+                    ui.ellipse(p.x(side * 6.5) + p.look.0 * s * 0.6, p.y(-6.0) + p.look.1 * s * 0.6, 1.5 * s, 1.5 * o * s, hex(0x101010));
+                }
+            }
+            EyeState::Closed => ui.arc(p.x(side * 6.5), p.y(-5.0), 2.4 * s, 2.4, 1.8, hex(0x12301A), 1.1 * s),
+            EyeState::Happy => ui.arc(p.x(side * 6.5), p.y(-4.5), 2.6 * s, -1.2, 2.4, hex(0x12301A), 1.3 * s),
+        }
+    }
+    // Wide smile, cheeks and chin spot.
+    ui.arc(p.x(0.0), p.y(4.0), 6.5 * s, 2.4, 1.7, hex(0x12301A), 1.0 * s);
+    for side in [-1.0f32, 1.0] {
+        ui.circle(p.x(side * 9.0), p.y(3.0), 2.0 * s, hex(0x8FE0A0).with_a(0.7));
+    }
+    ui.ellipse(p.x(0.0), p.y(10.5), 2.0 * s, 1.0 * s, hex(0x8FE0A0));
+    16.0 * s
+}
+
+/// A minty little dinosaur with belly plates and spikes (an original character).
+fn dino(ui: &mut Ui, p: &Pose) -> f32 {
+    let s = p.s;
+    let skin = hex(0x5EC2A4);
+    let belly = hex(0xD6F2E6);
+    let ink = hex(0x0E2A20);
+    // Back spikes.
+    for (dx, w) in [(-10.0f32, 3.4), (-3.0, 3.8), (4.0, 3.4), (10.0, 2.8)] {
+        ui.polygon(&[(p.x(dx - w), p.y(-6.0)), (p.x(dx), p.y(-12.5)), (p.x(dx + w), p.y(-6.0))], belly);
+    }
+    ui.ellipse(p.x(0.0), p.y(3.0), 12.5 * s, 10.0 * s, skin);
+    // Belly plate and cheek spots.
+    ui.ellipse(p.x(0.0), p.y(8.0), 7.0 * s, 5.5 * s, belly);
+    for side in [-1.0f32, 1.0] {
+        ui.circle(p.x(side * 9.5), p.y(2.0), 1.6 * s, belly.with_a(0.85));
+    }
+    eye_pair(ui, p, 5.0, -1.5, 2.0, 2.5, ink, 0.5);
+    if let EyeState::Open(o) = p.eye {
+        if o > 0.6 {
+            for side in [-1.0f32, 1.0] {
+                ui.circle(p.x(side * 5.0 + 0.7) + p.look.0 * s * 0.5, p.y(-2.3) + p.look.1 * s * 0.5, 0.6 * s, col::TEXT);
+            }
+        }
+    }
+    ui.arc(p.x(0.0), p.y(2.0), 3.0 * s, 2.2, 1.9, ink, 1.0 * s);
+    // Tiny arm that lifts when waving.
+    let lift = if p.eye == EyeState::Happy { -6.0 } else { 4.0 };
+    ui.line(p.x(-9.0), p.y(lift + 4.0), p.x(-13.0), p.y(lift), skin, 2.2 * s);
+    ui.circle(p.x(-13.0), p.y(lift), 1.6 * s, skin);
+    16.0 * s
+}
+
+/// The owl with a crown, for days it is in charge (an original character).
+fn owl_king(ui: &mut Ui, p: &Pose) -> f32 {
+    let s = p.s;
+    let feather = hex(0x5A4A72);
+    let face = hex(0xCBB8E8);
+    // Face disc first so the tufts show.
+    ui.ellipse(p.x(0.0), p.y(2.0), 13.0 * s, 11.0 * s, feather);
+    for side in [-1.0f32, 1.0] {
+        ui.circle(p.x(side * 5.6), p.y(0.5), 6.0 * s, face);
+    }
+    // Big eyes with amber rings and pupils that follow the cursor.
+    for side in [-1.0f32, 1.0] {
+        let ex = p.x(side * 5.6);
+        let ey = p.y(0.5);
+        match p.eye {
+            EyeState::Open(o) => {
+                ui.ellipse(ex, ey, 4.2 * s, (4.2 * o).max(0.5) * s, col::TEXT);
+                if o > 0.4 {
+                    ui.ellipse(ex + p.look.0 * s * 0.6, ey + p.look.1 * s * 0.6, 2.4 * s, 2.4 * o * s, col::ACCENT);
+                    ui.ellipse(ex + p.look.0 * s * 0.7, ey + p.look.1 * s * 0.7, 1.2 * s, 1.2 * o * s, hex(0x101010));
+                }
+            }
+            EyeState::Closed => ui.arc(ex, ey - 1.0, 3.4 * s, 2.0, 2.3, hex(0x2A2440), 1.3 * s),
+            EyeState::Happy => ui.arc(ex, ey + 2.0, 3.4 * s, -1.2, 2.4, hex(0x2A2440), 1.5 * s),
+        }
+    }
+    ui.polygon(&[(p.x(-1.8), p.y(4.5)), (p.x(1.8), p.y(4.5)), (p.x(0.0), p.y(8.0))], col::ACCENT);
+    // A small gold crown, with red and cyan jewels, tilting with the bob.
+    let tilt = ((p.t * 1.4).sin() * 0.7) as f32;
+    let gold = hex(0xFFE066);
+    let base = [(p.x(-7.0 + tilt), p.y(-8.5)), (p.x(-7.0 + tilt), p.y(-12.5)), (p.x(-4.5 + tilt), p.y(-9.8)), (p.x(-2.0 + tilt), p.y(-13.5)), (p.x(0.5 + tilt), p.y(-9.8)), (p.x(3.0 + tilt), p.y(-13.5)), (p.x(5.5 + tilt), p.y(-9.8)), (p.x(8.0 + tilt), p.y(-12.5)), (p.x(8.0 + tilt), p.y(-8.5))];
+    ui.polygon(&base, gold);
+    ui.circle(p.x(0.5 + tilt), p.y(-10.2), 1.3 * s, col::RED);
+    ui.circle(p.x(-4.5 + tilt), p.y(-10.0), 1.0 * s, col::CYAN);
+    15.0 * s
 }

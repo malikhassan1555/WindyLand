@@ -30,6 +30,9 @@ pub mod timer;
 pub mod tools;
 pub mod todo;
 pub mod update;
+pub mod agenda;
+pub mod eye_rest;
+pub mod sky;
 pub mod water;
 
 /// Every tab opens to this one panel size (content area, DIPs), so the tab
@@ -58,6 +61,9 @@ pub fn all(hwnd: HWND) -> Vec<Box<dyn Module>> {
         Box::new(privacy::Privacy::new()),
         Box::new(notifs::Notifs::new(hwnd)),
         Box::new(update::Updater::new(hwnd)),
+        Box::new(agenda::Agenda::load()),
+        Box::new(eye_rest::EyeRest::load()),
+        Box::new(sky::Sky::load()),
         // Box::new(example::Example::default()),
     ]
 }

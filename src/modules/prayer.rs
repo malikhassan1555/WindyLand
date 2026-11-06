@@ -26,23 +26,17 @@ const MOON: &str = "\u{E708}";
 /// Fajr, Sunrise, Dhuhr, Asr, Maghrib, Isha.
 pub const NAMES: [&str; 6] = ["Fajr", "Sunrise", "Dhuhr", "Asr", "Maghrib", "Isha"];
 
-pub const CITIES: [(&str, f64, f64); 16] = [
-    ("Dhaka", 23.8103, 90.4125),
-    ("Chattogram", 22.3569, 91.7832),
-    ("Khulna", 22.8456, 89.5403),
-    ("Rajshahi", 24.3745, 88.6042),
-    ("Sylhet", 24.8949, 91.8687),
-    ("Barishal", 22.7010, 90.3535),
-    ("Rangpur", 25.7439, 89.2752),
-    ("Mymensingh", 24.7471, 90.4203),
-    ("Cumilla", 23.4607, 91.1809),
-    ("Gazipur", 23.9999, 90.4203),
-    ("Narayanganj", 23.6238, 90.5000),
-    ("Bogura", 24.8465, 89.3773),
-    ("Cox's Bazar", 21.4272, 92.0058),
-    ("Jashore", 23.1664, 89.2081),
-    ("Dinajpur", 25.6217, 88.6355),
-    ("Noakhali", 22.8696, 91.0995),
+pub const CITIES: [(&str, f64, f64); 10] = [
+    ("Bhakkar", 31.2833, 72.1500),
+    ("Lahore", 31.5204, 74.3587),
+    ("Islamabad", 33.6844, 73.0479),
+    ("Rawalpindi", 33.5651, 73.0169),
+    ("Karachi", 24.8607, 67.0011),
+    ("Faisalabad", 31.4504, 73.1350),
+    ("Multan", 30.1575, 71.5249),
+    ("Peshawar", 34.0151, 71.5249),
+    ("Quetta", 30.1961, 66.9750),
+    ("Hyderabad", 24.8491, 68.3578),
 ];
 
 /// Calculation methods: (key, label, Fajr angle, Isha angle or minutes after Maghrib).
@@ -59,6 +53,70 @@ pub const METHODS: [(&str, &str, f64, Isha); 5] = [
     ("makkah", "Makkah", 18.5, Isha::Minutes(90.0)),
 ];
 const BEFORE: [u32; 4] = [0, 5, 10, 15];
+
+/// Next-prayer header animations: (key, label).
+pub const ANIM_STYLES: [(&str, &str); 11] = [
+    ("none", "None"),
+    ("fade", "Fade"),
+    ("slide", "Slide"),
+    ("bounce", "Bounce"),
+    ("pop", "Pop"),
+    ("glow", "Glow"),
+    ("rainbow", "Rainbow"),
+    ("waves", "Waves"),
+    ("pulse", "Pulse"),
+    ("tick", "Clock tick"),
+    ("star", "Star"),
+];
+const A_ANIM: u32 = 120; // + index
+
+/// Evaluate an animation style at time `t` (seconds).
+/// Returns (scale, alpha, dx, dy, colour) to apply to the next-prayer header.
+fn anim_eval(style: u8, t: f64) -> (f32, f32, f32, f32, Color) {
+    let tt = t as f32;
+    let base = ACCENT;
+    match style {
+        1 => (1.0, 0.55 + 0.45 * (tt * 4.0).sin(), 0.0, 0.0, base), // fade
+        2 => (1.0, 1.0, 5.0 * (tt * 2.0).sin(), 0.0, base), // slide
+        3 => (1.0, 1.0, 0.0, -6.0 * (tt * 3.0).sin().powi(2), base), // bounce
+        4 => (1.0 + 0.18 * (tt * 4.0).sin(), 1.0, 0.0, 0.0, base), // pop
+        5 => {
+            let mix = 0.5 + 0.5 * (tt * 2.0).sin();
+            (1.0, 1.0, 0.0, 0.0, base.lerp(hex(0xFFFFFF), mix))
+        } // glow
+        6 => {
+            let hue = (tt * 0.5) % 1.0;
+            (1.0, 1.0, 0.0, 0.0, hsv_rgb(hue, 1.0, 1.0))
+        } // rainbow
+        7 => (1.0, 1.0, 4.0 * (tt * 2.0).sin(), 3.0 * (tt * 3.0).cos(), base), // waves
+        8 => (1.0 + 0.12 * (tt * 5.0).sin(), 0.8 + 0.2 * (tt * 5.0).sin(), 0.0, 0.0, base), // pulse
+        9 => {
+            let tick = if (tt * 2.0).sin() > 0.92 { 0.25 } else { 0.0 };
+            (1.0 + tick, 1.0, 0.0, 0.0, base)
+        } // clock tick
+        10 => (1.0, 0.6 + 0.4 * (tt * 6.0).sin(), 3.0 * (tt * 4.0).sin(), 2.0 * (tt * 5.0).cos(), base), // star
+        _ => (1.0, 1.0, 0.0, 0.0, base), // none
+    }
+}
+
+/// HSV (h in 0..1) to RGB colour.
+fn hsv_rgb(h: f32, s: f32, v: f32) -> Color {
+    let i = (h * 6.0).floor() as i32;
+    let f = h * 6.0 - i as f32;
+    let p = v * (1.0 - s);
+    let q = v * (1.0 - s * f);
+    let t = v * (1.0 - s * (1.0 - f));
+    let v = v.clamp(0.0, 1.0);
+    let (r, g, b) = match i.rem_euclid(6) {
+        0 => (v, t, p),
+        1 => (q, v, p),
+        2 => (p, v, t),
+        3 => (p, q, v),
+        4 => (t, p, v),
+        _ => (v, p, q),
+    };
+    hex(((r * 255.0).round() as u32) << 16 | ((g * 255.0).round() as u32) << 8 | ((b * 255.0).round() as u32))
+}
 
 const A_SETTINGS: u32 = 1;
 const A_DONE: u32 = 2;
@@ -232,6 +290,8 @@ pub struct Prayer {
     bells: [bool; 6],
     before: u32,
     live_on: bool,
+    /// Next-prayer header animation style (0..ANIM_STYLES.len()).
+    anim: u8,
     page: Page,
     /// Custom location text being typed ("23.81, 90.41").
     editing: Option<String>,
@@ -261,6 +321,7 @@ impl Prayer {
             bells: [false; 6],
             before: kv.get("before").and_then(|v| v.parse().ok()).filter(|b| BEFORE.contains(b)).unwrap_or(0),
             live_on: kv.get("live").map_or(false, |v| v == "1"),
+            anim: kv.get("anim").and_then(|v| v.parse().ok()).filter(|v| *v < ANIM_STYLES.len() as u8).unwrap_or(0),
             page: Page::Main,
             editing: None,
             fired: Vec::new(),
@@ -292,6 +353,7 @@ impl Prayer {
         kv.insert("asr".to_string(), if self.hanafi { "hanafi" } else { "shafi" }.to_string());
         kv.insert("before".to_string(), self.before.to_string());
         kv.insert("live".to_string(), (self.live_on as u8).to_string());
+        kv.insert("anim".to_string(), self.anim.to_string());
         for (i, n) in NAMES.iter().enumerate() {
             let k = n.to_lowercase();
             kv.insert(format!("off_{k}"), self.offsets[i].to_string());
@@ -302,7 +364,8 @@ impl Prayer {
 
     pub fn calc(&self) -> Calc {
         let (_, _, fajr, isha) = METHODS[self.method];
-        Calc { lat: self.lat, lon: self.lon, tz: local_tz(), fajr, isha, asr: if self.hanafi { 2.0 } else { 1.0 } }
+        // Asia/Karachi = UTC+5, no DST, for all cities (default Bhakkar).
+        Calc { lat: self.lat, lon: self.lon, tz: 5.0, fajr, isha, asr: if self.hanafi { 2.0 } else { 1.0 } }
     }
 
     fn place(&self) -> String {
@@ -363,7 +426,12 @@ impl Prayer {
         // Next prayer, big, with a countdown and progress through the gap.
         ui.text(&format!("Next · {}", NAMES[next]), l.cut_top(18.0, 2.0), 12.0, col::DIM, Weight::Semi, Align::Left);
         let head = l.cut_top(40.0, 2.0);
-        ui.text(&hhmm(t[next]), head, 32.0, ACCENT, Weight::Semi, Align::Left);
+        let (ascale, aalpha, adx, ady, acol) = anim_eval(self.anim, ui.t);
+        let prev_alpha = ui.alpha;
+        ui.alpha = prev_alpha * aalpha;
+        let ahead = Rect::new(head.x + adx, head.y + ady, head.w, head.h);
+        ui.text(&hhmm(t[next]), ahead, 32.0 * ascale, acol, Weight::Semi, Align::Left);
+        ui.alpha = prev_alpha;
         let (h, m) = ((left / 60.0).floor() as i64, (left % 60.0).floor() as i64);
         let count = if h > 0 { format!("in {h} h {m} min") } else { format!("in {m} min") };
         ui.text(&count, l.cut_top(18.0, 8.0), 12.5, col::TEXT, Weight::Regular, Align::Left);
@@ -402,11 +470,14 @@ impl Prayer {
 
     fn draw_location(&mut self, ui: &mut Ui, mut r: Rect) {
         self.draw_nav(ui, &mut r);
-        let grid = r.cut_top(4.0 * 22.0 + 3.0 * 6.0, 10.0);
-        for (row_i, row) in grid.rows(4, 6.0).into_iter().enumerate() {
+        let rows_count = (CITIES.len() + 3) / 4;
+        let grid = r.cut_top(rows_count as f32 * 22.0 + (rows_count as f32 - 1.0) * 6.0, 10.0);
+        for (row_i, row) in grid.rows(rows_count, 6.0).into_iter().enumerate() {
             for (col_i, cell) in row.columns(4, 6.0).into_iter().enumerate() {
                 let i = row_i * 4 + col_i;
-                ui.chip(cell, CITIES[i].0, A_CITY + i as u32, self.city == Some(i), ACCENT);
+                if i < CITIES.len() {
+                    ui.chip(cell, CITIES[i].0, A_CITY + i as u32, self.city == Some(i), ACCENT);
+                }
             }
         }
         let mut row = r.cut_top(24.0, 0.0);
@@ -446,6 +517,16 @@ impl Prayer {
             ui.chip(cell, &label, A_BEFORE + i as u32, self.before == BEFORE[i], ACCENT);
         }
         ui.toggle(r.cut_top(26.0, 0.0), "Countdown in the notch 15 minutes before", self.live_on, A_LIVE, ACCENT);
+        let mut row = r.cut_top(22.0, 8.0);
+        ui.text("Alert style", row.cut_left(lab, 0.0), 12.0, col::DIM, Weight::Regular, Align::Left);
+        for (ri, arow) in [r.cut_top(22.0, 6.0), r.cut_top(22.0, 0.0)].into_iter().enumerate() {
+            let start = ri * 6;
+            let end = (start + 6).min(ANIM_STYLES.len());
+            for (i, cell) in arow.columns(end - start, 6.0).into_iter().enumerate() {
+                let idx = start + i;
+                ui.chip(cell, ANIM_STYLES[idx].1, A_ANIM + idx as u32, self.anim == idx as u8, ACCENT);
+            }
+        }
     }
 
     fn draw_adjust(&mut self, ui: &mut Ui, mut r: Rect) {
@@ -468,6 +549,45 @@ impl Prayer {
     }
 }
 
+
+
+/// Compare our on-PC calculation against aladhan.com's published values for
+/// Lahore and Bhakkar (Karachi method 18/18, Hanafi, Asia/Karachi = +5.0).
+/// Reports each difference in minutes; fails only if a prayer is more than
+/// about 3 minutes away (the sun-angle formula can't do better than that).
+/// Compare our on-PC calculation against aladhan.com's published values for
+/// Lahore and Bhakkar (Karachi method 18/18, Hanafi, Asia/Karachi = +5.0).
+/// Returns the worst difference in minutes, or an Err if any prayer is more
+/// than about 3 minutes away.
+pub fn run_validation_tests() -> Result<i64, String> {
+    // Reference values from aladhan.com, University of Islamic Sciences,
+    // Karachi (Fajr 18°, Isha 18°), Hanafi school, Asia/Karachi (+5:00).
+    let refs: [(&str, f64, f64, i32, i32, i32, [f64; 6]); 3] = [
+        ("Lahore", 31.5204, 74.3587, 2026, 11, 6, [5.00, 6.37, 11.77, 15.55, 17.17, 18.53]),
+        ("Lahore", 31.5204, 74.3587, 2026, 6, 21, [3.32, 4.97, 12.07, 17.02, 19.18, 20.83]),
+        ("Bhakkar", 31.2833, 72.1500, 2026, 11, 6, [5.13, 6.52, 11.92, 15.70, 17.32, 18.68]),
+    ];
+
+    let mut worst = 0i64;
+    let mut bad = Vec::new();
+    for (name, lat, lon, y, m, d, expected) in refs {
+        // Fixed Asia/Karachi offset (+5 h, no DST), not the PC's time zone.
+        let calc = Calc { lat, lon, tz: 5.0, fajr: 18.0, isha: Isha::Angle(18.0), asr: 2.0 };
+        let actual = times(&calc, y, m, d);
+        for i in 0..6 {
+            let diff = ((actual[i] * 60.0).round() as i64 - (expected[i] * 60.0).round() as i64).abs();
+            worst = worst.max(diff);
+            if diff > 3 {
+                bad.push(format!("{} {}-{:02}-{:02} {}: ours {} vs aladhan {} ({} min)",
+                    name, y, m, d, NAMES[i], hhmm24(actual[i]), hhmm24(expected[i]), diff));
+            }
+        }
+    }
+    if !bad.is_empty() {
+        return Err(format!("prayer times vs aladhan, worst {} min: {}", worst, bad.join("; ")));
+    }
+    Ok(worst)
+}
 impl Module for Prayer {
     fn tip(&self, id: u32) -> &'static str {
         match id {
@@ -481,6 +601,7 @@ impl Module for Prayer {
             i if i == A_ASR + 1 => "Hanafi Asr time (later)",
             i if (A_BEFORE..A_BEFORE + 10).contains(&i) => "How early the reminder comes",
             A_LIVE => "Count down on the closed notch 15 minutes before",
+            i if (A_ANIM..A_ANIM + ANIM_STYLES.len() as u32).contains(&i) => "Animate the next-prayer header",
             i if (A_BELL..A_BELL + 6).contains(&i) => "Reminder for this prayer on or off",
             i if (A_MINUS..A_MINUS + 6).contains(&i) => "One minute earlier",
             i if (A_PLUS..A_PLUS + 6).contains(&i) => "One minute later",
@@ -604,6 +725,10 @@ impl Module for Prayer {
                 self.live_on = !self.live_on;
                 self.save();
             }
+            i if (A_ANIM..A_ANIM + ANIM_STYLES.len() as u32).contains(&i) => {
+                self.anim = (i - A_ANIM) as u8;
+                self.save();
+            }
             i if (A_BELL..A_BELL + 6).contains(&i) => {
                 let k = (i - A_BELL) as usize;
                 self.bells[k] = !self.bells[k];
@@ -678,8 +803,9 @@ impl Module for Prayer {
     }
 
     fn animating(&self) -> bool {
-        // The countdown in the closed notch ticks every second.
-        self.editing.is_some() || self.live().is_some()
+        // The countdown in the closed notch ticks every second; an active
+        // header animation keeps redrawing while the panel is open.
+        self.editing.is_some() || self.live().is_some() || self.anim != 0
     }
 
     fn debug_state(&self) -> String {
